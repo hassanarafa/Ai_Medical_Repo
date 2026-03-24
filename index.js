@@ -1,27 +1,25 @@
 import express from 'express';
 import multer from 'multer';
 import { GoogleGenAI } from '@google/genai';
-import fs from 'fs';
 import cors from 'cors';
 
 const app = express();
-app.use(cors()); // Allow frontend access
-const port = 3000;
+app.use(cors());
+app.use(express.json());
 
 const ai = new GoogleGenAI({ 
     apiKey: "AIzaSyAIQEs3_bPQ_lcUX9Yv1xwvEwhN3ygokAU" 
 });
 
-const upload = multer({ dest: '/tmp/' });
+// 🟢 Switch to memoryStorage (Faster on Vercel)
+const upload = multer({ storage: multer.memoryStorage() });
 
 app.post('/api/analyze', upload.single('image'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-        // Parse user answers from the wizard
         const answers = JSON.parse(req.body.user_answers || "{}");
-        const imageBuffer = fs.readFileSync(req.file.path);
-        const imageBase64 = imageBuffer.toString("base64");
+        const imageBase64 = req.file.buffer.toString("base64");
 
         const prompt = `
             Analyze this skin image for acne.
@@ -45,10 +43,13 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
                     { text: prompt },
                     { inlineData: { data: imageBase64, mimeType: req.file.mimetype } }
                 ]
-            }]
+            }],
+            // 🟢 Forces Gemini to use more detail for small acne spots
+            generationConfig: {
+                media_resolution: "HIGH"
+            }
         });
 
-        fs.unlinkSync(req.file.path);
         const text = response.text.replace(/```json|```/g, "").trim();
         res.json(JSON.parse(text));
 
@@ -59,4 +60,3 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 });
 
 export default app;
-// app.listen(port, () => console.log(`🚀 Node.js Backend Live: http://localhost:${port}`));
