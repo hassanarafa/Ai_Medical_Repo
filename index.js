@@ -7,54 +7,57 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ SECURE: Key is pulled from Vercel Environment Variables
-const ai = new GoogleGenAI({ 
-    apiKey: process.env.GEMINI_API_KEY 
-});
+// ✅ Initialize Gemini (Make sure GEMINI_API_KEY is in Vercel Settings)
+const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
-// Use Memory Storage for Vercel (much faster than /tmp/)
-const upload = multer({ storage: multer.memoryStorage() });
+// Vercel works best with memoryStorage for small/medium files
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 4 * 1024 * 1024 } // 4MB limit (Vercel's max is 4.5MB)
+});
 
 app.get('/', (req, res) => res.send('Acne AI Backend is Online 🚀'));
 
 app.post('/api/analyze', upload.single('image'), async (req, res) => {
     try {
+        // 1. Validation
         if (!req.file) return res.status(400).json({ error: "No image uploaded" });
 
+        // 2. Prepare AI
+        const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash" });
         const imageBase64 = req.file.buffer.toString("base64");
-        const answers = JSON.parse(req.body.user_answers || "{}");
+        
+        // Parse answers safely
+        let answers = {};
+        try {
+            answers = JSON.parse(req.body.user_answers || "{}");
+        } catch (e) {
+            console.warn("Could not parse user_answers, using defaults.");
+        }
 
         const prompt = `
             Analyze this skin image for acne.
-            Profile: ${answers.gender}, Age ${answers.age}, Skin Type: ${answers.skinType}.
-            Symptoms: Painful? ${answers.painful}, Pus? ${answers.pus}, Redness? ${answers.redness}.
-            
-            1. Identify acne type.
-            2. Evaluate suitability of 'Clarino' (Basil, Tea Tree, Thyme, Lavender).
-            
+            Profile: ${answers.gender || 'Unknown'}, Age ${answers.age || 'Unknown'}.
+            Symptoms: Painful? ${answers.painful || 'N/A'}, Pus? ${answers.pus || 'N/A'}.
             Return ONLY JSON: 
             {"diagnosis": "...", "suitability": "...", "reasoning": "...", "clinical_note": "..."}
         `;
 
-        const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: [{
-                role: "user",
-                parts: [
-                    { text: prompt },
-                    { inlineData: { data: imageBase64, mimeType: req.file.mimetype } }
-                ]
-            }],
-            generationConfig: { media_resolution: "HIGH" }
-        });
+        // 3. AI Execution
+        const result = await model.generateContent([
+            prompt,
+            { inlineData: { data: imageBase64, mimeType: req.file.mimetype } }
+        ]);
 
-        // Clean and parse JSON response
-        const text = response.text.replace(/```json|```/g, "").trim();
+        const response = await result.response;
+        const text = response.text().replace(/```json|```/g, "").trim();
+        
+        // 4. Send Response
         res.json(JSON.parse(text));
 
     } catch (error) {
-        console.error("AI Error:", error.message);
-        res.status(500).json({ error: "AI Analysis failed. Check Vercel logs." });
+        console.error("Vercel AI Error:", error.message);
+        res.status(500).json({ error: "AI Analysis failed. Check Vercel logs for details." });
     }
 });
 
