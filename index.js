@@ -1,49 +1,40 @@
 import express from 'express';
 import multer from 'multer';
 import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
 import cors from 'cors';
+import path from 'path';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Initialize Gemini (Make sure GEMINI_API_KEY is in Vercel Settings)
+// ✅ SECURE: Uses Railway Environment Variable
 const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
-// Vercel works best with memoryStorage for small/medium files
-const upload = multer({ 
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 4 * 1024 * 1024 } // 4MB limit (Vercel's max is 4.5MB)
-});
+// ✅ CLOUD FRIENDLY: Use memory storage or the /tmp directory
+const upload = multer({ dest: '/tmp/' });
 
-app.get('/', (req, res) => res.send('Acne AI Backend is Online 🚀'));
+app.get('/', (req, res) => res.send('🚂 Railway Backend is Running!'));
 
-app.post('/api/analyze', upload.single('image'), async (req, res) => {
+app.post('/analyze', upload.single('image'), async (req, res) => {
     try {
-        // 1. Validation
-        if (!req.file) return res.status(400).json({ error: "No image uploaded" });
+        if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-        // 2. Prepare AI
-        const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash" });
-        const imageBase64 = req.file.buffer.toString("base64");
-        
-        // Parse answers safely
-        let answers = {};
-        try {
-            answers = JSON.parse(req.body.user_answers || "{}");
-        } catch (e) {
-            console.warn("Could not parse user_answers, using defaults.");
-        }
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const answers = JSON.parse(req.body.user_answers || "{}");
+        const imageBuffer = fs.readFileSync(req.file.path);
+        const imageBase64 = imageBuffer.toString("base64");
 
         const prompt = `
             Analyze this skin image for acne.
-            Profile: ${answers.gender || 'Unknown'}, Age ${answers.age || 'Unknown'}.
-            Symptoms: Painful? ${answers.painful || 'N/A'}, Pus? ${answers.pus || 'N/A'}.
+            Profile: ${answers.gender}, Age ${answers.age}, Skin Type: ${answers.skinType}.
+            1. Identify acne type.
+            2. Evaluate suitability of 'Clarino'.
             Return ONLY JSON: 
             {"diagnosis": "...", "suitability": "...", "reasoning": "...", "clinical_note": "..."}
         `;
 
-        // 3. AI Execution
         const result = await model.generateContent([
             prompt,
             { inlineData: { data: imageBase64, mimeType: req.file.mimetype } }
@@ -51,14 +42,21 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 
         const response = await result.response;
         const text = response.text().replace(/```json|```/g, "").trim();
+
+        // Clean up uploaded file
+        fs.unlinkSync(req.file.path);
         
-        // 4. Send Response
         res.json(JSON.parse(text));
 
     } catch (error) {
-        console.error("Vercel AI Error:", error.message);
-        res.status(500).json({ error: "AI Analysis failed. Check Vercel logs for details." });
+        console.error(error);
+        if (req.file) fs.unlinkSync(req.file.path);
+        res.status(500).json({ error: error.message });
     }
 });
 
-export default app;
+// ✅ RAILWAY REQUIREMENT: Use process.env.PORT
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server listening on port ${PORT}`);
+});

@@ -9,7 +9,7 @@ def main():
         return
 
     # ✅ SECURE: Pulls key from your Windows/Mac environment
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = "AIzaSyBY38THUT5ldC_lqz8tkxDPLf4cnEPosIw"
     if not api_key:
         print("❌ Error: GEMINI_API_KEY environment variable not set.")
         return
