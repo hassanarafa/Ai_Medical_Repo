@@ -8,28 +8,29 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Add this log to debug in Railway
+// Log to help us see the start
 console.log("Checking API Key...", process.env.GEMINI_API_KEY ? "Key Found" : "Key MISSING");
 
-if (!process.env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not defined in Environment Variables");
-}
+// ✅ CORRECT INITIALIZATION FOR 2026 SDK
+const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
-const genAI = new GoogleGenAI({ 
-    apiKey: process.env.GEMINI_API_KEY 
-});
-// ✅ CLOUD FRIENDLY: Use memory storage or the /tmp directory
+// Use /tmp/ for Railway's file system
 const upload = multer({ dest: '/tmp/' });
 
-app.get('/', (req, res) => res.send('🚂 Railway Backend is Running!'));
+app.get('/', (req, res) => res.send('🚀 Acne AI Backend is LIVE!'));
 
-app.post('/analyze', upload.single('image'), async (req, res) => {
+// Use upload.any() temporarily to solve the 'Unexpected Field' error
+app.post('/analyze', upload.any(), async (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+        // Find the image in the uploaded files
+        const file = req.files.find(f => f.fieldname === 'image');
+        if (!file) return res.status(400).json({ error: "No image file found in 'image' field" });
 
+        // ✅ FIXED AI CALL
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        
         const answers = JSON.parse(req.body.user_answers || "{}");
-        const imageBuffer = fs.readFileSync(req.file.path);
+        const imageBuffer = fs.readFileSync(file.path);
         const imageBase64 = imageBuffer.toString("base64");
 
         const prompt = `
@@ -43,26 +44,26 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
 
         const result = await model.generateContent([
             prompt,
-            { inlineData: { data: imageBase64, mimeType: req.file.mimetype } }
+            { inlineData: { data: imageBase64, mimeType: file.mimetype } }
         ]);
 
         const response = await result.response;
         const text = response.text().replace(/```json|```/g, "").trim();
 
-        // Clean up uploaded file
-        fs.unlinkSync(req.file.path);
+        // Clean up
+        fs.unlinkSync(file.path);
         
         res.json(JSON.parse(text));
 
     } catch (error) {
-        console.error(error);
-        if (req.file) fs.unlinkSync(req.file.path);
+        console.error("CRITICAL ERROR:", error.message);
+        // Clean up if error occurs
+        if (req.files) req.files.forEach(f => fs.unlinkSync(f.path));
         res.status(500).json({ error: error.message });
     }
 });
 
-// ✅ RAILWAY REQUIREMENT: Use process.env.PORT
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server listening on port ${PORT}`);
 });
