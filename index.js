@@ -10,41 +10,44 @@ app.use(express.json());
 
 const upload = multer({ dest: '/tmp/' });
 
-app.get('/', (req, res) => res.send('🚀 Backend is Online'));
-
 app.post('/analyze', upload.any(), async (req, res) => {
     try {
         const file = req.files?.find(f => f.fieldname === 'image');
         if (!file) return res.status(400).json({ error: "No image file" });
 
-        // ✅ DEFENSIVE INITIALIZATION
-        if (!process.env.GEMINI_API_KEY) throw new Error("Missing API Key");
+        // The new SDK uses a Client-style initialization
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         
-        const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
-        // Sometimes the SDK requires calling the model differently in ESM:
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
         const answers = JSON.parse(req.body.user_answers || "{}");
         const imageBuffer = fs.readFileSync(file.path);
-        
-        const result = await model.generateContent([
-            `Analyze this skin for acne. Patient: ${answers.age}, ${answers.gender}. 
-             Return ONLY JSON: {"diagnosis": "...", "suitability": "...", "reasoning": "...", "clinical_note": "..."}`,
-            { inlineData: { data: imageBuffer.toString("base64"), mimeType: file.mimetype } }
-        ]);
+        const base64Image = imageBuffer.toString("base64");
 
-        const response = await result.response;
-        const text = response.text().replace(/```json|```/g, "").trim();
+        // New 2026 SDK "models.generateContent" syntax
+        const result = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: `Analyze this skin for acne. Profile: ${answers.gender}, Age ${answers.age}. Return ONLY JSON: {"diagnosis": "...", "suitability": "...", "reasoning": "...", "clinical_note": "..."}` },
+                        { inlineData: { data: base64Image, mimeType: file.mimetype } }
+                    ]
+                }
+            ]
+        });
 
         fs.unlinkSync(file.path);
+        
+        // The result structure in the new SDK
+        const text = result.response.text().replace(/```json|```/g, "").trim();
         res.json(JSON.parse(text));
 
     } catch (error) {
-        console.error("LOG:", error.message);
-        if (req.files) req.files.forEach(f => fs.unlinkSync(f.path));
+        console.error("AI Error:", error.message);
+        if (req.files) req.files.forEach(f => { if(fs.existsSync(f.path)) fs.unlinkSync(f.path) });
         res.status(500).json({ error: error.message });
     }
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Listening on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server ready on port ${PORT}`));
