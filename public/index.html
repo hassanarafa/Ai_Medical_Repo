@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AcneLens - Acne Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            boxShadow: {
+              glow: '0 0 0 1px rgba(255,255,255,0.08), 0 12px 40px rgba(56, 189, 248, 0.22)'
+            }
+          }
+        }
+      }
+    </script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+    <div class="fixed inset-0 -z-10 overflow-hidden">
+        <div class="absolute -top-20 -left-20 h-72 w-72 rounded-full bg-fuchsia-600/25 blur-3xl"></div>
+        <div class="absolute top-1/3 -right-20 h-80 w-80 rounded-full bg-cyan-500/25 blur-3xl"></div>
+        <div class="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-violet-500/20 blur-3xl"></div>
+    </div>
+
+    <main class="mx-auto w-full max-w-6xl px-4 py-8 md:py-12">
+        <header class="mb-8 md:mb-10">
+            <p class="inline-flex items-center rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium tracking-wide text-cyan-200">
+                AI Skin Analysis
+            </p>
+            <h1 class="mt-4 text-3xl font-bold tracking-tight md:text-5xl">AcneLens</h1>
+            <p class="mt-2 max-w-2xl text-slate-300">Upload a skin photo, add profile details, and get acne analysis from the model.</p>
+        </header>
+
+        <section class="grid gap-6 md:grid-cols-2">
+            <form id="analysisForm" class="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-glow backdrop-blur-xl md:p-6">
+                <h2 class="mb-5 text-xl font-semibold">Patient Input</h2>
+
+                <div class="space-y-5">
+                    <div>
+                        <label for="image" class="mb-2 block text-sm font-medium text-slate-200">Upload Image</label>
+                        <input type="file" id="image" name="image" accept="image/*" required class="block w-full cursor-pointer rounded-xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-500/20 file:px-3 file:py-1.5 file:text-cyan-200 hover:file:bg-cyan-500/30">
+                        <p id="imageName" class="mt-2 text-xs text-slate-400">No file selected</p>
+                    </div>
+
+                    <div>
+                        <div class="mb-2 block text-sm font-medium text-slate-200">Preview</div>
+                        <img id="preview" alt="Image preview" class="hidden h-52 w-full rounded-xl border border-white/10 object-cover" />
+                        <div id="previewEmpty" class="flex h-52 items-center justify-center rounded-xl border border-dashed border-white/15 bg-slate-900/40 text-sm text-slate-400">
+                            Image preview will appear here
+                        </div>
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <p class="mb-2 block text-sm font-medium text-slate-200">Gender</p>
+                            <input type="hidden" id="gender" name="gender" value="Unknown">
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" data-field="gender" data-value="female" class="choice-btn rounded-xl border border-pink-300/40 bg-pink-500/10 px-3 py-2 text-sm text-pink-200">
+                                    ♀ Female
+                                </button>
+                                <button type="button" data-field="gender" data-value="male" class="choice-btn rounded-xl border border-blue-300/40 bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
+                                    ♂ Male
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="age" class="mb-2 block text-sm font-medium text-slate-200">Age</label>
+                            <input type="number" id="age" name="age" placeholder="25" min="1" max="120" class="w-full rounded-xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm outline-none ring-cyan-400 transition focus:ring-2">
+                        </div>
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <p class="mb-2 block text-sm font-medium text-slate-200">Painful</p>
+                            <input type="hidden" id="painful" name="painful" value="N/A">
+                            <div class="flex gap-2">
+                                <button type="button" data-field="painful" data-value="yes" class="choice-btn rounded-lg border border-emerald-300/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">Yes</button>
+                                <button type="button" data-field="painful" data-value="no" class="choice-btn rounded-lg border border-rose-300/40 bg-rose-500/10 px-3 py-1 text-xs text-rose-200">No</button>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="mb-2 block text-sm font-medium text-slate-200">Pus</p>
+                            <input type="hidden" id="pus" name="pus" value="N/A">
+                            <div class="flex gap-2">
+                                <button type="button" data-field="pus" data-value="yes" class="choice-btn rounded-lg border border-emerald-300/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">Yes</button>
+                                <button type="button" data-field="pus" data-value="no" class="choice-btn rounded-lg border border-rose-300/40 bg-rose-500/10 px-3 py-1 text-xs text-rose-200">No</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="analyzeBtn" type="submit" class="w-full rounded-xl bg-cyan-500 px-4 py-2.5 font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60">
+                        Analyze
+                    </button>
+                </div>
+            </form>
+
+            <section class="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-glow backdrop-blur-xl md:p-6">
+                <h2 class="mb-5 text-xl font-semibold">Analysis Result</h2>
+
+                <div class="space-y-3 text-sm">
+                    <div class="rounded-xl border border-white/10 bg-slate-900/55 p-3">
+                        <p class="text-slate-400">Diagnosis</p>
+                        <p id="diagnosis" class="mt-1 font-medium text-cyan-200">N/A</p>
+                    </div>
+                    <div class="rounded-xl border border-white/10 bg-slate-900/55 p-3">
+                        <p class="text-slate-400">Suitability</p>
+                        <p id="suitability" class="mt-1 font-medium text-cyan-200">N/A</p>
+                    </div>
+                    <div class="rounded-xl border border-white/10 bg-slate-900/55 p-3">
+                        <p class="text-slate-400">Reasoning</p>
+                        <p id="reasoning" class="mt-1 text-slate-200">N/A</p>
+                    </div>
+                    <div class="rounded-xl border border-white/10 bg-slate-900/55 p-3">
+                        <p class="text-slate-400">Clinical Note</p>
+                        <p id="clinicalNote" class="mt-1 text-slate-200">N/A</p>
+                    </div>
+                </div>
+
+                <div class="mt-4 rounded-xl border border-white/10 bg-slate-900/60 p-3">
+                    <p class="mb-2 text-xs uppercase tracking-wide text-slate-400">Raw JSON</p>
+                    <pre id="result" class="overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">Waiting for analysis...</pre>
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <script src="/static/api.js"></script>
+    <script src="/static/interactivity.js"></script>
+</body>
+</html>
