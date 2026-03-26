@@ -10,8 +10,18 @@ app.use(cors());
 app.use(express.json());
 
 // ✅ SECURE: Uses Railway Environment Variable
-const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
+import { GoogleGenAI } from '@google/genai';
 
+// Add this log to debug in Railway
+console.log("Checking API Key...", process.env.GEMINI_API_KEY ? "Key Found" : "Key MISSING");
+
+if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not defined in Environment Variables");
+}
+
+const genAI = new GoogleGenAI({ 
+    apiKey: process.env.GEMINI_API_KEY 
+});
 // ✅ CLOUD FRIENDLY: Use memory storage or the /tmp directory
 const upload = multer({ dest: '/tmp/' });
 
