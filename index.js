@@ -24,7 +24,7 @@ app.post('/analyze', upload.any(), async (req, res) => {
 
         // New 2026 SDK "models.generateContent" syntax
         const result = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-1.5-flash',
             contents: [
                 {
                     role: 'user',
