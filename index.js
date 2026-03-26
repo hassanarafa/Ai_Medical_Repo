@@ -3,14 +3,10 @@ import multer from 'multer';
 import { GoogleGenAI } from '@google/genai';
 import fs from 'fs';
 import cors from 'cors';
-import path from 'path';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-// ✅ SECURE: Uses Railway Environment Variable
-import { GoogleGenAI } from '@google/genai';
 
 // Add this log to debug in Railway
 console.log("Checking API Key...", process.env.GEMINI_API_KEY ? "Key Found" : "Key MISSING");
