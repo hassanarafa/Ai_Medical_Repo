@@ -12,8 +12,9 @@ app.use(express.json());
 console.log("Checking API Key...", process.env.GEMINI_API_KEY ? "Key Found" : "Key MISSING");
 
 // ✅ CORRECT INITIALIZATION FOR 2026 SDK
-const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
-
+const genAI = new GoogleGenAI({ 
+    apiKey: process.env.GEMINI_API_KEY 
+});
 // Use /tmp/ for Railway's file system
 const upload = multer({ dest: '/tmp/' });
 
