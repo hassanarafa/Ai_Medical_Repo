@@ -11,12 +11,15 @@ app.use(express.json());
 
 const upload = multer({ dest: '/tmp/' });
 
-// ✅ HELPER: Corrected parameters to handle the payload properly
-async function generateWithRetry(model, payload, retries = 3, delay = 2000) {
+// ✅ REWRITTEN HELPER: Updated for the @google/genai models accessor
+async function generateWithRetry(ai, config, contents, retries = 3, delay = 2000) {
     for (let i = 0; i < retries; i++) {
         try {
-            // Note: contents must be passed directly in the latest SDK version
-            return await model.generateContent(payload);
+            // In @google/genai, we use ai.models.generateContent
+            return await ai.models.generateContent({
+                ...config,
+                contents: contents
+            });
         } catch (error) {
             if (error.message.includes("503") && i < retries - 1) {
                 console.log(`⚠️ AI Busy (Attempt ${i + 1}/${retries}). Retrying...`);
@@ -33,15 +36,15 @@ app.post('/analyze', upload.any(), async (req, res) => {
     let file = null;
     try {
         file = req.files?.find(f => f.fieldname === 'image');
-        if (!file) return res.status(400).json({ error: "No image file provided" });
+        if (!file) return res.status(400).json({ error: "No image provided" });
 
         const answers = JSON.parse(req.body.user_answers || "{}");
         
-        // ✅ 1. Initialize with the API Key
-        const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
+        // 1. Initialize AI Client
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         
-        // ✅ 2. Get the model instance
-        const model = genAI.getGenerativeModel({ 
+        // 2. Prepare Config & Payload
+        const config = {
             model: 'gemini-1.5-flash',
             generationConfig: {
                 responseMimeType: 'application/json',
@@ -56,27 +59,26 @@ app.post('/analyze', upload.any(), async (req, res) => {
                     required: ['diagnosis', 'suitability', 'reasoning', 'clinical_note']
                 }
             }
-        });
+        };
 
         const imageBuffer = fs.readFileSync(file.path);
         const base64Image = imageBuffer.toString("base64");
 
-        // ✅ 3. Corrected Payload Structure
-        const payload = {
-            contents: [{
-                role: 'user',
-                parts: [
-                    { text: `Identify acne type. Patient Profile: ${answers.gender}, Age ${answers.age}. Check Clarino suitability.` },
-                    { inlineData: { data: base64Image, mimeType: file.mimetype } }
-                ]
-            }]
-        };
+        const contents = [{
+            role: 'user',
+            parts: [
+                { text: `Identify acne type. Profile: ${answers.gender}, Age ${answers.age}.` },
+                { inlineData: { data: base64Image, mimeType: file.mimetype } }
+            ]
+        }];
 
-        // 4. Execute
-        const result = await generateWithRetry(model, payload);
-        const diagnosisData = JSON.parse(result.response.text());
+        // 3. Execute AI Analysis
+        const result = await generateWithRetry(ai, config, contents);
+        
+        // In this SDK, result is the parsed object already
+        const diagnosisData = result;
 
-        // 📧 DYNAMIC EMAIL DELIVERY (Remains the same)
+        // 4. Dynamic Email Delivery
         if (answers.senderEmail && answers.senderPass) {
             const transporter = nodemailer.createTransport({
                 service: 'gmail',
@@ -98,7 +100,6 @@ app.post('/analyze', upload.any(), async (req, res) => {
                     </div>
                 `
             };
-
             transporter.sendMail(mailOptions).catch(err => console.error("❌ Email Error:", err.message));
         }
 
@@ -109,7 +110,7 @@ app.post('/analyze', upload.any(), async (req, res) => {
         console.error("ANALYSIS FAILED:", error.message);
         if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
         const status = error.message.includes("503") ? 503 : 500;
-        res.status(status).json({ error: "Service unavailable or overloaded. Try again." });
+        res.status(status).json({ error: "AI processing failed. Please try again." });
     }
 });
 
