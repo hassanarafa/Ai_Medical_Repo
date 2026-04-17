@@ -46,7 +46,7 @@ app.post('/analyze', upload.any(), async (req, res) => {
         
         // 2. Updated Configuration (Gemini 2.0 Flash is the 2026 stable choice)
         const config = {
-            model: 'gemini-2.0-flash', 
+            model: 'gemini-1.5-flash-8b', 
             generationConfig: {
                 responseMimeType: 'application/json',
                 responseSchema: {
