@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI } from '@google/genai'; 
 import fs from 'fs';
 import cors from 'cors';
 import nodemailer from 'nodemailer';
@@ -11,11 +11,9 @@ app.use(express.json());
 
 const upload = multer({ dest: '/tmp/' });
 
-// ✅ REWRITTEN HELPER: Standardized for 2026 SDK
 async function generateWithRetry(ai, config, contents, retries = 3, delay = 2000) {
     for (let i = 0; i < retries; i++) {
         try {
-            // Use the direct models.generateContent accessor
             return await ai.models.generateContent({
                 ...config,
                 contents: contents
@@ -41,12 +39,10 @@ app.post('/analyze', upload.any(), async (req, res) => {
 
         const answers = JSON.parse(req.body.user_answers || "{}");
         
-        // 1. Initialize AI Client
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         
-        // 2. Updated Model Configuration (Gemini 3 Flash)
         const config = {
-            model: 'gemini-3-flash-preview', // Updated from 1.5-flash
+            model: 'gemini-3.1-flash-preview', 
             generationConfig: {
                 responseMimeType: 'application/json',
                 responseSchema: {
@@ -68,18 +64,12 @@ app.post('/analyze', upload.any(), async (req, res) => {
         const contents = [{
             role: 'user',
             parts: [
-                { text: `Identify acne type. Profile: ${answers.gender}, Age ${answers.age}.` },
+                { text: `Diagnose acne for ${answers.age}yo ${answers.gender}. Determine Clarino suitability.` },
                 { inlineData: { data: base64Image, mimeType: file.mimetype } }
             ]
         }];
 
-        // 3. Execute AI Analysis
-        const result = await generateWithRetry(ai, config, contents);
-        
-        // The SDK now returns the parsed response directly
-        const diagnosisData = result;
-
-        // 4. Dynamic Email Delivery
+        const diagnosisData = await generateWithRetry(ai, config, contents);
         if (answers.senderEmail && answers.senderPass) {
             const transporter = nodemailer.createTransport({
                 service: 'gmail',
@@ -89,17 +79,14 @@ app.post('/analyze', upload.any(), async (req, res) => {
             const mailOptions = {
                 from: answers.senderEmail,
                 to: answers.recipientEmail || answers.senderEmail,
-                subject: `Clarino AI: Skin Analysis Report`,
+                subject: `Clarino AI: Your Skin Analysis Report`,
                 html: `
                     <div style="font-family: sans-serif; padding: 20px; border: 1px solid #C2E5D3; border-radius: 12px; background-color: #F1F8F4;">
                         <h2 style="color: #2D5A43;">Skin Analysis Results</h2>
                         <p><strong>Diagnosis:</strong> ${diagnosisData.diagnosis}</p>
                         <p><strong>Suitability:</strong> ${diagnosisData.suitability}</p>
-                        <hr style="border: 0; border-top: 1px solid #C2E5D3; margin: 20px 0;">
-                        <p><strong>AI Reasoning:</strong> ${diagnosisData.reasoning}</p>
-                        <p style="background: white; padding: 10px; border-radius: 8px;"><strong>Note:</strong> ${diagnosisData.clinical_note}</p>
-                    </div>
-                `
+                        <p><strong>Reasoning:</strong> ${diagnosisData.reasoning}</p>
+                    </div>`
             };
             transporter.sendMail(mailOptions).catch(err => console.error("❌ Email Error:", err.message));
         }
@@ -110,10 +97,7 @@ app.post('/analyze', upload.any(), async (req, res) => {
     } catch (error) {
         console.error("ANALYSIS FAILED:", error.message);
         if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        
-        // Handle specific 404 or 503 errors
-        const status = error.message.includes("404") ? 404 : 503;
-        res.status(status).json({ error: "AI model unavailable or busy. Please try again." });
+        res.status(500).json({ error: "Analysis failed. Please try again." });
     }
 });
 
