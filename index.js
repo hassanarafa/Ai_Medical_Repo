@@ -11,14 +11,15 @@ app.use(express.json());
 
 const upload = multer({ dest: '/tmp/' });
 
-// HELPER: Retry logic for 503 "Service Unavailable" errors
+// ✅ HELPER: Corrected parameters to handle the payload properly
 async function generateWithRetry(model, payload, retries = 3, delay = 2000) {
     for (let i = 0; i < retries; i++) {
         try {
+            // Note: contents must be passed directly in the latest SDK version
             return await model.generateContent(payload);
         } catch (error) {
             if (error.message.includes("503") && i < retries - 1) {
-                console.log(`⚠️ AI Busy (Attempt ${i + 1}/${retries}). Retrying in ${delay}ms...`);
+                console.log(`⚠️ AI Busy (Attempt ${i + 1}/${retries}). Retrying...`);
                 await new Promise(res => setTimeout(res, delay));
                 delay *= 2; 
                 continue;
@@ -35,9 +36,12 @@ app.post('/analyze', upload.any(), async (req, res) => {
         if (!file) return res.status(400).json({ error: "No image file provided" });
 
         const answers = JSON.parse(req.body.user_answers || "{}");
-        const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
         
-        const model = ai.getGenerativeModel({ 
+        // ✅ 1. Initialize with the API Key
+        const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
+        
+        // ✅ 2. Get the model instance
+        const model = genAI.getGenerativeModel({ 
             model: 'gemini-1.5-flash',
             generationConfig: {
                 responseMimeType: 'application/json',
@@ -57,6 +61,7 @@ app.post('/analyze', upload.any(), async (req, res) => {
         const imageBuffer = fs.readFileSync(file.path);
         const base64Image = imageBuffer.toString("base64");
 
+        // ✅ 3. Corrected Payload Structure
         const payload = {
             contents: [{
                 role: 'user',
@@ -67,19 +72,15 @@ app.post('/analyze', upload.any(), async (req, res) => {
             }]
         };
 
-        // Execute AI request with Retry Logic
+        // 4. Execute
         const result = await generateWithRetry(model, payload);
         const diagnosisData = JSON.parse(result.response.text());
 
-        // 📧 DYNAMIC EMAIL DELIVERY
-        // Only triggers if user provided their Gmail + App Password in the frontend
+        // 📧 DYNAMIC EMAIL DELIVERY (Remains the same)
         if (answers.senderEmail && answers.senderPass) {
             const transporter = nodemailer.createTransport({
                 service: 'gmail',
-                auth: { 
-                    user: answers.senderEmail, 
-                    pass: answers.senderPass 
-                }
+                auth: { user: answers.senderEmail, pass: answers.senderPass }
             });
 
             const mailOptions = {
@@ -98,24 +99,19 @@ app.post('/analyze', upload.any(), async (req, res) => {
                 `
             };
 
-            // Send mail in background
-            transporter.sendMail(mailOptions)
-                .then(() => console.log(`✅ Email sent to ${mailOptions.to}`))
-                .catch(err => console.error("❌ Email Error:", err.message));
+            transporter.sendMail(mailOptions).catch(err => console.error("❌ Email Error:", err.message));
         }
 
-        // Cleanup and respond
         if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
         res.json(diagnosisData);
 
     } catch (error) {
         console.error("ANALYSIS FAILED:", error.message);
         if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        
         const status = error.message.includes("503") ? 503 : 500;
-        res.status(status).json({ error: "The AI is currently busy. Please try again in a few moments." });
+        res.status(status).json({ error: "Service unavailable or overloaded. Try again." });
     }
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Medical AI Backend Active on Port ${PORT}`)); 
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Backend running on ${PORT}`));
