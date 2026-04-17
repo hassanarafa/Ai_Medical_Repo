@@ -37,7 +37,6 @@ app.post('/analyze', upload.any(), async (req, res) => {
         const answers = JSON.parse(req.body.user_answers || "{}");
         const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
         
-        // Use 1.5-flash if 2.5-flash is experiencing high demand
         const model = ai.getGenerativeModel({ 
             model: 'gemini-1.5-flash',
             generationConfig: {
@@ -119,4 +118,4 @@ app.post('/analyze', upload.any(), async (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Medical AI Backend Active on Port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Medical AI Backend Active on Port ${PORT}`)); 
