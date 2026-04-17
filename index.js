@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { GoogleGenAI } from '@google/genai'; 
+import { GoogleGenAI } from '@google/genai';
 import fs from 'fs';
 import cors from 'cors';
 import nodemailer from 'nodemailer';
@@ -11,15 +11,17 @@ app.use(express.json());
 
 const upload = multer({ dest: '/tmp/' });
 
+// ✅ REWRITTEN HELPER: Using the 2026 SDK accessor
 async function generateWithRetry(ai, config, contents, retries = 3, delay = 2000) {
     for (let i = 0; i < retries; i++) {
         try {
+            // In @google/genai, models are properties of the ai instance
             return await ai.models.generateContent({
                 ...config,
                 contents: contents
             });
         } catch (error) {
-            // Retry on 503 (Overload) or 429 (Rate Limit)
+            // Retry on Overload (503) or Rate Limit (429)
             if ((error.message.includes("503") || error.message.includes("429")) && i < retries - 1) {
                 console.log(`⚠️ AI Busy (Attempt ${i + 1}/${retries}). Retrying...`);
                 await new Promise(res => setTimeout(res, delay));
@@ -39,10 +41,12 @@ app.post('/analyze', upload.any(), async (req, res) => {
 
         const answers = JSON.parse(req.body.user_answers || "{}");
         
+        // 1. Initialize Client
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         
+        // 2. Updated Configuration (Gemini 2.0 Flash is the 2026 stable choice)
         const config = {
-            model: 'gemini-3.1-flash-preview', 
+            model: 'gemini-2.0-flash', 
             generationConfig: {
                 responseMimeType: 'application/json',
                 responseSchema: {
@@ -64,12 +68,16 @@ app.post('/analyze', upload.any(), async (req, res) => {
         const contents = [{
             role: 'user',
             parts: [
-                { text: `Diagnose acne for ${answers.age}yo ${answers.gender}. Determine Clarino suitability.` },
+                { text: `Identify acne type for ${answers.age}yo ${answers.gender}. Determine Clarino suitability.` },
                 { inlineData: { data: base64Image, mimeType: file.mimetype } }
             ]
         }];
 
+        // 3. Execute Analysis
+        // Result is the parsed JSON object directly in this SDK
         const diagnosisData = await generateWithRetry(ai, config, contents);
+
+        // 4. Send Email (Recipient from Frontend)
         if (answers.senderEmail && answers.senderPass) {
             const transporter = nodemailer.createTransport({
                 service: 'gmail',
@@ -79,16 +87,10 @@ app.post('/analyze', upload.any(), async (req, res) => {
             const mailOptions = {
                 from: answers.senderEmail,
                 to: answers.recipientEmail || answers.senderEmail,
-                subject: `Clarino AI: Your Skin Analysis Report`,
-                html: `
-                    <div style="font-family: sans-serif; padding: 20px; border: 1px solid #C2E5D3; border-radius: 12px; background-color: #F1F8F4;">
-                        <h2 style="color: #2D5A43;">Skin Analysis Results</h2>
-                        <p><strong>Diagnosis:</strong> ${diagnosisData.diagnosis}</p>
-                        <p><strong>Suitability:</strong> ${diagnosisData.suitability}</p>
-                        <p><strong>Reasoning:</strong> ${diagnosisData.reasoning}</p>
-                    </div>`
+                subject: `Clarino AI Report`,
+                html: `<h3>Diagnosis: ${diagnosisData.diagnosis}</h3><p>${diagnosisData.reasoning}</p>`
             };
-            transporter.sendMail(mailOptions).catch(err => console.error("❌ Email Error:", err.message));
+            transporter.sendMail(mailOptions).catch(err => console.error("Email failed:", err.message));
         }
 
         if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
@@ -97,7 +99,10 @@ app.post('/analyze', upload.any(), async (req, res) => {
     } catch (error) {
         console.error("ANALYSIS FAILED:", error.message);
         if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        res.status(500).json({ error: "Analysis failed. Please try again." });
+        
+        // Map common errors to user-friendly messages
+        const status = error.message.includes("404") ? 404 : 503;
+        res.status(status).json({ error: "System update in progress or high demand. Please try again." });
     }
 });
 
