@@ -11,17 +11,18 @@ app.use(express.json());
 
 const upload = multer({ dest: '/tmp/' });
 
-// ✅ REWRITTEN HELPER: Updated for the @google/genai models accessor
+// ✅ REWRITTEN HELPER: Standardized for 2026 SDK
 async function generateWithRetry(ai, config, contents, retries = 3, delay = 2000) {
     for (let i = 0; i < retries; i++) {
         try {
-            // In @google/genai, we use ai.models.generateContent
+            // Use the direct models.generateContent accessor
             return await ai.models.generateContent({
                 ...config,
                 contents: contents
             });
         } catch (error) {
-            if (error.message.includes("503") && i < retries - 1) {
+            // Retry on 503 (Overload) or 429 (Rate Limit)
+            if ((error.message.includes("503") || error.message.includes("429")) && i < retries - 1) {
                 console.log(`⚠️ AI Busy (Attempt ${i + 1}/${retries}). Retrying...`);
                 await new Promise(res => setTimeout(res, delay));
                 delay *= 2; 
@@ -43,9 +44,9 @@ app.post('/analyze', upload.any(), async (req, res) => {
         // 1. Initialize AI Client
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         
-        // 2. Prepare Config & Payload
+        // 2. Updated Model Configuration (Gemini 3 Flash)
         const config = {
-            model: 'gemini-1.5-flash',
+            model: 'gemini-3-flash-preview', // Updated from 1.5-flash
             generationConfig: {
                 responseMimeType: 'application/json',
                 responseSchema: {
@@ -75,7 +76,7 @@ app.post('/analyze', upload.any(), async (req, res) => {
         // 3. Execute AI Analysis
         const result = await generateWithRetry(ai, config, contents);
         
-        // In this SDK, result is the parsed object already
+        // The SDK now returns the parsed response directly
         const diagnosisData = result;
 
         // 4. Dynamic Email Delivery
@@ -109,10 +110,12 @@ app.post('/analyze', upload.any(), async (req, res) => {
     } catch (error) {
         console.error("ANALYSIS FAILED:", error.message);
         if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        const status = error.message.includes("503") ? 503 : 500;
-        res.status(status).json({ error: "AI processing failed. Please try again." });
+        
+        // Handle specific 404 or 503 errors
+        const status = error.message.includes("404") ? 404 : 503;
+        res.status(status).json({ error: "AI model unavailable or busy. Please try again." });
     }
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Backend running on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Clarino AI Backend Active on ${PORT}`));
