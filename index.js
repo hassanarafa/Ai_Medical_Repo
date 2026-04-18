@@ -3,52 +3,35 @@ import multer from 'multer';
 import { GoogleGenAI } from '@google/genai';
 import fs from 'fs';
 import cors from 'cors';
-import nodemailer from 'nodemailer';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Set up temporary storage for Railway
 const upload = multer({ dest: '/tmp/' });
 
-// ✅ REWRITTEN HELPER: Using the 2026 SDK accessor
-async function generateWithRetry(ai, config, contents, retries = 3, delay = 2000) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            // In @google/genai, models are properties of the ai instance
-            return await ai.models.generateContent({
-                ...config,
-                contents: contents
-            });
-        } catch (error) {
-            // Retry on Overload (503) or Rate Limit (429)
-            if ((error.message.includes("503") || error.message.includes("429")) && i < retries - 1) {
-                console.log(`⚠️ AI Busy (Attempt ${i + 1}/${retries}). Retrying...`);
-                await new Promise(res => setTimeout(res, delay));
-                delay *= 2; 
-                continue;
-            }
-            throw error;
-        }
-    }
-}
-
 app.post('/analyze', upload.any(), async (req, res) => {
-    let file = null;
     try {
-        file = req.files?.find(f => f.fieldname === 'image');
-        if (!file) return res.status(400).json({ error: "No image provided" });
+        // 1. Validate Input
+        const file = req.files?.find(f => f.fieldname === 'image');
+        if (!file) return res.status(400).json({ error: "No image file provided" });
 
-        const answers = JSON.parse(req.body.user_answers || "{}");
-        
-        // 1. Initialize Client
+        // 2. Initialize AI Client
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        
-        // 2. Updated Configuration (Gemini 2.0 Flash is the 2026 stable choice)
-        const config = {
-            model: 'gemini-1.5-flash-8b', 
-            generationConfig: {
+
+        // 3. Prepare Data
+        const answers = JSON.parse(req.body.user_answers || "{}");
+        const imageBuffer = fs.readFileSync(file.path);
+        const base64Image = imageBuffer.toString("base64");
+
+        // 4. Request Structured Analysis
+        const result = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            config: {
+                // FORCE JSON FORMAT
                 responseMimeType: 'application/json',
+                // DEFINE THE STRUCTURE BLUEPRINT
                 responseSchema: {
                     type: 'object',
                     properties: {
@@ -59,52 +42,52 @@ app.post('/analyze', upload.any(), async (req, res) => {
                     },
                     required: ['diagnosis', 'suitability', 'reasoning', 'clinical_note']
                 }
-            }
-        };
-
-        const imageBuffer = fs.readFileSync(file.path);
-        const base64Image = imageBuffer.toString("base64");
-
-        const contents = [{
-            role: 'user',
-            parts: [
-                { text: `Identify acne type for ${answers.age}yo ${answers.gender}. Determine Clarino suitability.` },
-                { inlineData: { data: base64Image, mimeType: file.mimetype } }
+            },
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { 
+                            text: `Identify the type of acne in this image. 
+                                   Patient Profile: ${answers.gender}, Age ${answers.age}. 
+                                   Determine if 'Clarino' treatment is safe and effective for this specific case.` 
+                        },
+                        { 
+                            inlineData: { 
+                                data: base64Image, 
+                                mimeType: file.mimetype 
+                            } 
+                        }
+                    ]
+                }
             ]
-        }];
+        });
 
-        // 3. Execute Analysis
-        // Result is the parsed JSON object directly in this SDK
-        const diagnosisData = await generateWithRetry(ai, config, contents);
+        // 5. Ephemeral Cleanup (Delete file immediately after AI receives it)
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
 
-        // 4. Send Email (Recipient from Frontend)
-        if (answers.senderEmail && answers.senderPass) {
-            const transporter = nodemailer.createTransport({
-                service: 'gmail',
-                auth: { user: answers.senderEmail, pass: answers.senderPass }
-            });
-
-            const mailOptions = {
-                from: answers.senderEmail,
-                to: answers.recipientEmail || answers.senderEmail,
-                subject: `Clarino AI Report`,
-                html: `<h3>Diagnosis: ${diagnosisData.diagnosis}</h3><p>${diagnosisData.reasoning}</p>`
-            };
-            transporter.sendMail(mailOptions).catch(err => console.error("Email failed:", err.message));
+        // 6. Final Output Check
+        if (!result || !result.text) {
+            throw new Error("AI failed to generate a diagnostic text response.");
         }
 
-        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        res.json(diagnosisData);
+        // result.text is now a clean JSON string, no cleaning/regex needed!
+        res.json(JSON.parse(result.text));
 
     } catch (error) {
         console.error("ANALYSIS FAILED:", error.message);
-        if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
         
-        // Map common errors to user-friendly messages
-        const status = error.message.includes("404") ? 404 : 503;
-        res.status(status).json({ error: "System update in progress or high demand. Please try again." });
+        // Ensure cleanup if process failed mid-way
+        if (req.files) {
+            req.files.forEach(f => {
+                if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+            });
+        }
+        
+        res.status(500).json({ error: "Server failed to process image analysis." });
     }
 });
 
+// Use Railway's dynamic port
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Clarino AI Backend Active on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Medical AI Backend Active on Port ${PORT}`));
