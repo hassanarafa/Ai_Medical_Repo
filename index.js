@@ -1,93 +1,56 @@
 import express from 'express';
 import multer from 'multer';
 import { GoogleGenAI } from '@google/genai';
-import fs from 'fs';
 import cors from 'cors';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Set up temporary storage for Railway
-const upload = multer({ dest: '/tmp/' });
+const upload = multer({ storage: multer.memoryStorage() });
 
-app.post('/analyze', upload.any(), async (req, res) => {
+// 1. Unified SDK requires an object with apiKey
+const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+app.post('/analyze', upload.single('image'), async (req, res) => {
     try {
-        // 1. Validate Input
-        const file = req.files?.find(f => f.fieldname === 'image');
-        if (!file) return res.status(400).json({ error: "No image file provided" });
+        if (!req.file) return res.status(400).json({ error: "No image" });
 
-        // 2. Initialize AI Client
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-        // 3. Prepare Data
-        const answers = JSON.parse(req.body.user_answers || "{}");
-        const imageBuffer = fs.readFileSync(file.path);
-        const base64Image = imageBuffer.toString("base64");
-
-        // 4. Request Structured Analysis
-        const result = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            config: {
-                // FORCE JSON FORMAT
-                responseMimeType: 'application/json',
-                // DEFINE THE STRUCTURE BLUEPRINT
-                responseSchema: {
-                    type: 'object',
-                    properties: {
-                        diagnosis: { type: 'string' },
-                        suitability: { type: 'string' },
-                        reasoning: { type: 'string' },
-                        clinical_note: { type: 'string' }
-                    },
-                    required: ['diagnosis', 'suitability', 'reasoning', 'clinical_note']
-                }
-            },
+        // 2. Call generateContent directly from the client.models object
+        const result = await client.models.generateContent({
+            model: "gemini-1.5-flash",
             contents: [
                 {
                     role: 'user',
                     parts: [
-                        { 
-                            text: `Identify the type of acne in this image. 
-                                   Patient Profile: ${answers.gender}, Age ${answers.age}. 
-                                   Determine if 'Clarino' treatment is safe and effective for this specific case.` 
-                        },
-                        { 
-                            inlineData: { 
-                                data: base64Image, 
-                                mimeType: file.mimetype 
-                            } 
+                        { text: "Identify the acne type and treatment suitability." },
+                        {
+                            inlineData: {
+                                data: req.file.buffer.toString("base64"),
+                                mimeType: req.file.mimetype
+                            }
                         }
                     ]
                 }
-            ]
+            ],
+            config: {
+                responseMimeType: "application/json"
+            }
         });
 
-        // 5. Ephemeral Cleanup (Delete file immediately after AI receives it)
-        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-
-        // 6. Final Output Check
-        if (!result || !result.text) {
-            throw new Error("AI failed to generate a diagnostic text response.");
-        }
-
-        // result.text is now a clean JSON string, no cleaning/regex needed!
+        // 3. result.text is a direct string in the Unified SDK
         res.json(JSON.parse(result.text));
 
     } catch (error) {
-        console.error("ANALYSIS FAILED:", error.message);
-        
-        // Ensure cleanup if process failed mid-way
-        if (req.files) {
-            req.files.forEach(f => {
-                if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
-            });
+        // Handle the specific Quota/Rate Limit error gracefully
+        if (error.message?.includes('429')) {
+            return res.status(429).json({ error: "Rate limit exceeded. Please wait a moment." });
         }
         
-        res.status(500).json({ error: "Server failed to process image analysis." });
+        console.error("CRITICAL ERROR:", error);
+        res.status(500).json({ error: error.message });
     }
 });
 
-// Use Railway's dynamic port
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Medical AI Backend Active on Port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
