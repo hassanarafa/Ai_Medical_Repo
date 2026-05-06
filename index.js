@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { GoogleGenAI, SchemaType } from '@google/genai'; // Added SchemaType for safety
+import { GoogleGenAI } from '@google/genai';
 import fs from 'fs';
 import cors from 'cors';
 
@@ -9,8 +9,6 @@ app.use(cors());
 app.use(express.json());
 
 const upload = multer({ dest: '/tmp/' });
-
-// 1. Initialize GenAI once outside the route
 const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
 app.post('/analyze', upload.any(), async (req, res) => {
@@ -20,19 +18,17 @@ app.post('/analyze', upload.any(), async (req, res) => {
         if (!file) return res.status(400).json({ error: "No image file provided" });
         filePath = file.path;
 
-        // 2. Get the specific model instance correctly
         const model = genAI.getGenerativeModel({ 
             model: "gemini-1.5-flash",
             generationConfig: {
                 responseMimeType: "application/json",
-                // Use the correct schema definition for the SDK
                 responseSchema: {
-                    type: SchemaType.OBJECT,
+                    type: "object",
                     properties: {
-                        diagnosis: { type: SchemaType.STRING },
-                        suitability: { type: SchemaType.STRING },
-                        reasoning: { type: SchemaType.STRING },
-                        clinical_note: { type: SchemaType.STRING }
+                        diagnosis: { type: "string" },
+                        suitability: { type: "string" },
+                        reasoning: { type: "string" },
+                        clinical_note: { type: "string" }
                     },
                     required: ["diagnosis", "suitability", "reasoning", "clinical_note"],
                 },
@@ -41,9 +37,7 @@ app.post('/analyze', upload.any(), async (req, res) => {
 
         const answers = JSON.parse(req.body.user_answers || "{}");
         const imageBuffer = fs.readFileSync(filePath);
-        const base64Image = imageBuffer.toString("base64");
-
-        // 3. Call generateContent on the model instance
+        
         const result = await model.generateContent([
             {
                 text: `Identify the type of acne in this image. 
@@ -52,25 +46,25 @@ app.post('/analyze', upload.any(), async (req, res) => {
             },
             {
                 inlineData: {
-                    data: base64Image,
+                    data: imageBuffer.toString("base64"),
                     mimeType: file.mimetype
                 }
             }
         ]);
 
         const response = await result.response;
-        const text = response.text();
-
-        // 4. Cleanup and Respond
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        res.json(JSON.parse(text));
+        res.json(JSON.parse(response.text()));
 
     } catch (error) {
-        console.error("ANALYSIS FAILED:", error);
-        if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        res.status(500).json({ error: "Analysis failed", details: error.message });
+        console.error("ANALYSIS ERROR:", error);
+        res.status(500).json({ error: "Failed to process analysis", message: error.message });
+    } finally {
+        // Guarantee cleanup of the temp file
+        if (filePath && fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
     }
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server on Port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server ready on port ${PORT}`));
