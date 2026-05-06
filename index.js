@@ -27,7 +27,7 @@ app.post('/analyze', upload.any(), async (req, res) => {
 
         // 4. Request Structured Analysis
         const result = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-1.5-flash',
             config: {
                 // FORCE JSON FORMAT
                 responseMimeType: 'application/json',
