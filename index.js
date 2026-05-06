@@ -7,41 +7,70 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// 1. Memory storage is safer for Railway (avoids WriteStream errors)
 const upload = multer({ storage: multer.memoryStorage() });
 
-// The Unified SDK uses an options object
+// 2. Initialize with an options object (Required for @google/genai)
 const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 app.post('/analyze', upload.single('image'), async (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: "No image" });
+        if (!req.file) {
+            return res.status(400).json({ error: "No image file provided" });
+        }
 
-        // Direct call to models.generateContent
+        const answers = JSON.parse(req.body.user_answers || "{}");
+
+        // 3. Use Unified SDK syntax: client.models.generateContent
         const result = await client.models.generateContent({
-            model: "gemini-1.5-flash",
+            model: 'gemini-3-flash', // Latest stable 2026 model
             contents: [
                 {
                     role: 'user',
                     parts: [
-                        { text: "Identify the acne type and treatment suitability." },
-                        {
-                            inlineData: {
-                                data: req.file.buffer.toString("base64"),
-                                mimeType: req.file.mimetype
-                            }
+                        { 
+                            text: `Identify the type of acne. 
+                                   Patient: ${answers.gender || 'Unknown'}, Age: ${answers.age || 'Unknown'}. 
+                                   Assess if 'Clarino' treatment is safe and effective.` 
+                        },
+                        { 
+                            inlineData: { 
+                                data: req.file.buffer.toString("base64"), 
+                                mimeType: req.file.mimetype 
+                            } 
                         }
                     ]
                 }
             ],
-            config: { responseMimeType: "application/json" }
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: 'object',
+                    properties: {
+                        diagnosis: { type: 'string' },
+                        suitability: { type: 'string' },
+                        reasoning: { type: 'string' },
+                        clinical_note: { type: 'string' }
+                    },
+                    required: ['diagnosis', 'suitability', 'reasoning', 'clinical_note']
+                }
+            }
         });
 
+        // 4. Access result.text directly (No .response.text() needed)
         res.json(JSON.parse(result.text));
+
     } catch (error) {
-        console.error("ANALYSIS ERROR:", error);
-        res.status(500).json({ error: error.message });
+        // Handle Rate Limits (429) specifically
+        if (error.message?.includes('429')) {
+            console.error("RATE LIMIT HIT");
+            return res.status(429).json({ error: "High demand. Please wait 60 seconds." });
+        }
+
+        console.error("ANALYSIS FAILED:", error);
+        res.status(500).json({ error: "Server failed to process image." });
     }
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🚀 Server active on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Backend active on port ${PORT}`));
